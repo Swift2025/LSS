@@ -1,0 +1,35 @@
+# General
+.DS_Store
+.env
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Node / Angular
+/node_modules
+/dist
+/coverage
+.angular/
+
+# Python / Django
+__pycache__/
+*.pyc
+.venv/
+/static/
+/media/
+db.sqlite3
+
+# .NET / C#
+/bin
+/obj
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# IDE
+.idea/
+.vscode/
+config/apps/models/intent_classifier/tf_model.h5
+config/models.7z

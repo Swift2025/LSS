@@ -1,0 +1,2 @@
+obj\Debug\net9.0\Protos/Support.cs \
+obj\Debug\net9.0\Protos/SupportGrpc.cs: Protos/support.proto

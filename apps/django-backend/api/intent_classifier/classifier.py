@@ -304,16 +304,13 @@ class MultilingualIntentClassifier(metaclass=SingletonMeta):
         }
 
 
-# --- Response Formatting Class ---
 class ResponseFormatter:
     """
     Generates user-friendly chat responses based on classification results
     and predefined templates.
     """
-
-    def __init__(self, classifier: MultilingualIntentClassifier, config_path: str = './config/ai/responses.json'):
+    def __init__(self, config_path: str = './config/ai/responses.json'):
         logger.info(f"Initializing ResponseFormatter with config: {config_path}")
-        self.classifier = classifier
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 self.responses = json.load(f)
@@ -321,7 +318,7 @@ class ResponseFormatter:
             logger.error(f"Failed to load response templates: {e}")
             self.responses = {}
 
-    def generate_response(self, classification_result: Dict) -> str:
+    def generate_response(self, classification_result: dict) -> str:
         """
         Formats a response string using templates.
         """
@@ -335,17 +332,15 @@ class ResponseFormatter:
         if not intent_responses:
             return lang_responses.get('unknown', {}).get('not_found', "I'm not sure how to help with that.")
 
-        # FIX: Dynamically check for automation based on intents config
-        intent_details = next((item for item in self.classifier.intents_config.get('intents', []) if item['intent'] == intent), None)
-        has_automation = intent_details.get('automation', False) if intent_details else False
-
-        response_key = 'found' if has_automation else 'not_found'
+        # Correctly check if an automated solution exists for the detected intent.
+        is_automated = intent in ["app_installation", "environment_setup", "hardware_info"]
+        response_key = 'found' if is_automated else 'not_found'
+        
         template = intent_responses.get(response_key, "Processing your request.")
 
-        # Populate template with entities
         try:
             app_names = ", ".join(entities.get('apps', []))
-            return template.format(apps=app_names, environment=entities.get('environment', ''))
-        except KeyError as e:
-            logger.warning(f"Missing key '{e}' in response template for intent '{intent}'.")
-            return template.replace("{apps}", "").replace("{environment}", "")  # Basic fallback
+            env_name = (entities.get('environment') or '').replace('_', ' ').title()
+            return template.format(apps=app_names, environment=env_name)
+        except KeyError:
+            return template.replace("{apps}", "").replace("{environment}", "")

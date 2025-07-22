@@ -23,6 +23,6 @@ def initialize_services():
 
     if response_formatter_instance is None:
         logger.info("Loading ResponseFormatter singleton...")
-        response_formatter_instance = ResponseFormatter(ai_classifier_instance)
+        response_formatter_instance = ResponseFormatter()
         logger.info("Response Formatter loaded.")
 

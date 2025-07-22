@@ -3,6 +3,7 @@ import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ChatInterfaceComponent } from './components/chat-interface/chat-interface.component';
 import { WebsocketService } from './services/websocket.service';
+import 'zone.js';
 
 @Component({
   selector: 'app-root',

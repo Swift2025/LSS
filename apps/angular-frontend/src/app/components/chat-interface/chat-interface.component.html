@@ -11,12 +11,23 @@
     }
   </div>
 
-  <!-- Loading/Progress Indicator Area -->
   @if (isLoading()) {
     <div class="progress-area">
-      <div class="typing-indicator">
-        <span></span><span></span><span></span>
-      </div>
+      @if (currentProgress(); as progress) {
+        <div class="progress-bar-container">
+          <div class="progress-text-container">
+            <span class="progress-text">{{ progress.currentTask }}</span>
+            <span class="progress-percentage">{{ progress.overallPercentage }}%</span>
+          </div>
+          <div class="progress-bar-background">
+            <div class="progress-bar-foreground" [style.width.%]="progress.overallPercentage"></div>
+          </div>
+        </div>
+      } @else {
+        <div class="typing-indicator">
+          <span></span><span></span><span></span>
+        </div>
+      }
       <button class="cancel-button" (click)="cancelOperation()">Cancel</button>
     </div>
   }

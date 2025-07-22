@@ -1,12 +1,13 @@
 // src/app/components/chat-interface/chat-interface.component.ts
-import { Component, ChangeDetectionStrategy, inject, signal, WritableSignal, effect, ViewChild, ElementRef } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, WritableSignal, effect, ViewChild, ElementRef, OnDestroy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Observable, Subscription } from 'rxjs';
 
 import { SupportApiService } from '../../services/support-api.service';
 import { WebsocketService } from '../../services/websocket.service';
-import { ChatMessage } from '../../interfaces/chat.interface';
+import { GrpcWebService } from '../../services/grpc-web.service';
+import { ChatMessage, GrpcEvent, ProgressUpdate } from '../../interfaces/chat.interface';
 
 @Component({
   selector: 'app-chat-interface',
@@ -16,45 +17,24 @@ import { ChatMessage } from '../../interfaces/chat.interface';
   styleUrls: ['./chat-interface.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ChatInterfaceComponent {
+export class ChatInterfaceComponent implements OnDestroy {
   private readonly apiService = inject(SupportApiService);
   public readonly websocketService = inject(WebsocketService);
+  private readonly grpcWebService = inject(GrpcWebService);
 
-  messages: WritableSignal<ChatMessage[]> = signal([]);
-  userInput: WritableSignal<string> = signal('');
-  isLoading: WritableSignal<boolean> = signal(false);
+  messages = signal<ChatMessage[]>([]);
+  userInput = signal('');
+  isLoading = signal(false);
+  
+  // FIX: Added a dedicated signal to hold the state of the current, in-flight operation.
+  currentProgress = signal<ProgressUpdate | null>(null);
+  
+  private activeGrpcSubscription: Subscription | null = null;
 
   @ViewChild('chatContainer') private chatContainer!: ElementRef;
 
   constructor() {
     effect(() => { if (this.messages()) this.scrollToBottom(); });
-
-    this.websocketService.progressUpdates$
-      .pipe(takeUntilDestroyed())
-      .subscribe(update => {
-        // FIX: Check if the update contains a gRPC error from the backend.
-        if (update.error) {
-          const errorMessage: ChatMessage = {
-            id: Date.now(),
-            sender: 'error',
-            text: `A backend error occurred: ${update.error.message} (Code: ${update.error.code})`,
-            timestamp: new Date(),
-          };
-          this.messages.update(msgs => [...msgs, errorMessage]);
-        } else {
-          const systemMessage: ChatMessage = {
-            id: Date.now(),
-            sender: 'system',
-            text: `[${update.percentage_complete}%] ${update.message}`,
-            timestamp: new Date(),
-          };
-          this.messages.update(msgs => [...msgs, systemMessage]);
-        }
-
-        if (update.status === 'COMPLETED' || update.status === 'FAILED') {
-          this.isLoading.set(false);
-        }
-      });
   }
 
   sendMessage(): void {
@@ -62,33 +42,85 @@ export class ChatInterfaceComponent {
     const channelName = this.websocketService.currentChannelName();
     if (!query || this.isLoading() || !channelName) return;
 
-    const userMessage: ChatMessage = { id: Date.now(), text: query, sender: 'user', timestamp: new Date() };
-    this.messages.update(msgs => [...msgs, userMessage]);
+    this.messages.update(m => [...m, { id: Date.now(), text: query, sender: 'user', timestamp: new Date() }]);
     this.userInput.set('');
     this.isLoading.set(true);
+    this.currentProgress.set(null); // Clear any previous progress bar
 
-    this.apiService.sendQuery({ query, channel_name: channelName })
-      .subscribe({
-        next: (response) => {
-          const assistantMessage: ChatMessage = { id: Date.now() + 1, text: response.initial_response, sender: 'assistant', timestamp: new Date() };
-          this.messages.update(msgs => [...msgs, assistantMessage]);
-        },
-        error: (err) => {
-          console.error("API Error:", err);
-          const errorMessage: ChatMessage = { id: Date.now() + 1, text: err.error?.details || 'Sorry, I encountered an API error. Please check the Django service.', sender: 'error', timestamp: new Date() };
-          this.messages.update(msgs => [...msgs, errorMessage]);
+    this.apiService.sendQuery({ query, channel_name: channelName }).subscribe({
+      next: (res) => {
+        this.messages.update(m => [...m, { id: Date.now(), text: res.initial_response, sender: 'assistant', timestamp: new Date() }]);
+        
+        if (res.intent === 'app_installation' && res.entities.apps?.length) {
+          this.executeGrpcStream(this.grpcWebService.installApps(res.entities.apps));
+        } else if (res.intent === 'environment_setup' && res.entities.environment) {
+          this.executeGrpcStream(this.grpcWebService.installEnvironment(res.entities.environment));
+        } else {
           this.isLoading.set(false);
         }
-      });
+      },
+      error: (err) => {
+        const errorText = err.error?.details || 'Could not connect to the AI service.';
+        this.messages.update(m => [...m, { id: Date.now(), text: errorText, sender: 'error', timestamp: new Date() }]);
+        this.isLoading.set(false);
+      }
+    });
+  }
+
+  private executeGrpcStream(stream$: Observable<GrpcEvent>): void {
+    this.activeGrpcSubscription = stream$.subscribe({
+      next: (event: GrpcEvent) => {
+        if (event.data) {
+          const data = event.data as ProgressUpdate;
+          // FIX: Instead of pushing to the main message array, update the dedicated signal.
+          // This keeps the progress bar on a single line.
+          this.currentProgress.set(data);
+        }
+      },
+      error: (err: GrpcEvent) => {
+        if (err.error) {
+          const errorMessage: ChatMessage = {
+            id: Date.now(), sender: 'error',
+            text: `gRPC Error: ${err.error.message} (Code: ${err.error.code})`,
+            timestamp: new Date(),
+          };
+          this.messages.update(msgs => [...msgs, errorMessage]);
+        }
+        this.isLoading.set(false);
+        this.currentProgress.set(null); // Clear progress on error
+      },
+      complete: () => {
+        const finalProgress = this.currentProgress();
+        if (finalProgress) {
+            // Add the final, completed message to the permanent chat history.
+            const finalMessage: ChatMessage = {
+                id: Date.now(),
+                sender: 'system',
+                text: finalProgress.currentTask,
+                timestamp: new Date()
+            };
+            this.messages.update(m => [...m, finalMessage]);
+        }
+        this.isLoading.set(false);
+        this.currentProgress.set(null); // Clear progress on completion
+        this.activeGrpcSubscription = null;
+      }
+    });
   }
 
   cancelOperation(): void {
-    this.websocketService.sendCancelRequest();
+    if (this.activeGrpcSubscription) {
+      this.activeGrpcSubscription.unsubscribe();
+      this.activeGrpcSubscription = null;
+      const systemMessage: ChatMessage = {
+        id: Date.now(), sender: 'system', text: 'Operation cancelled.', timestamp: new Date(),
+      };
+      this.messages.update(msgs => [...msgs, systemMessage]);
+      this.isLoading.set(false);
+      this.currentProgress.set(null);
+    }
   }
 
-  private scrollToBottom(): void {
-    try {
-      setTimeout(() => { this.chatContainer.nativeElement.scrollTop = this.chatContainer.nativeElement.scrollHeight; }, 0);
-    } catch (err) {}
-  }
+  ngOnDestroy(): void { this.cancelOperation(); }
+  private scrollToBottom(): void { try { setTimeout(() => this.chatContainer.nativeElement.scrollTop = this.chatContainer.nativeElement.scrollHeight, 0); } catch {} }
 }

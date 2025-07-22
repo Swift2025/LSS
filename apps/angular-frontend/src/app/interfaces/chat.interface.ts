@@ -6,7 +6,7 @@
 export interface ChatMessage {
   id: number;
   text: string;
-  sender: 'user' | 'assistant' | 'system' | 'error'; // Added 'error' sender type
+  sender: 'user' | 'assistant' | 'system' | 'error';
   timestamp: Date;
   status?: 'sending' | 'sent';
 }
@@ -32,14 +32,28 @@ export interface SupportResponse {
 }
 
 /**
- * Represents a progress update message from the WebSocket.
+ * A specific type for gRPC-Web errors.
+ */
+export interface GrpcError {
+  code: number;
+  message: string;
+}
+
+/**
+ * Defines the shape of the data object received from gRPC streams.
+ * The property names are camelCase to match the JSON representation.
  */
 export interface ProgressUpdate {
-  message: string;
-  percentage_complete: number;
-  status: 'IN_PROGRESS' | 'COMPLETED' | 'FAILED';
-  error?: {
-    code: string;
-    message: string;
-  };
+  currentTask: string;
+  overallPercentage: number;
+  status: number;
+}
+
+/**
+ * Wraps the data, error, and completion events from a gRPC stream.
+ */
+export interface GrpcEvent {
+  type: 'data' | 'error' | 'end';
+  data?: ProgressUpdate;
+  error?: GrpcError;
 }

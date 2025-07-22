@@ -18,9 +18,10 @@
       }
     ]
   },
-  "private": true,
+  "private": false,
   "dependencies": {
     "@angular/common": "^20.0.0",
+    "google-protobuf": "^3.21.2",
     "@angular/compiler": "^20.0.0",
     "@angular/core": "^20.0.0",
     "@angular/forms": "^20.0.0",
@@ -35,13 +36,18 @@
     "@angular/build": "^20.0.6",
     "@angular/cli": "^20.0.6",
     "@angular/compiler-cli": "^20.0.0",
+    "@grpc/grpc-js": "^1.13.4",
+    "@types/google-protobuf": "^3.15.12",
     "@types/jasmine": "~5.1.0",
+    "google-protobuf": "^3.21.4",
+    "grpc-web": "^1.5.0",
     "jasmine-core": "~5.7.0",
     "karma": "~6.4.0",
     "karma-chrome-launcher": "~3.2.0",
     "karma-coverage": "~2.2.0",
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "~2.1.0",
+    "protoc-gen-grpc-web": "^1.5.0",
     "typescript": "~5.8.2"
   }
 }

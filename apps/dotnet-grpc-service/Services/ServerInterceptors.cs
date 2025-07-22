@@ -23,9 +23,9 @@ namespace LaptopSupport.Services
             ServerCallContext context,
             UnaryServerMethod<TRequest, TResponse> continuation)
         {
-            _logger.LogInformation(
-                "[gRPC Server] Received Unary call. Method: {Method}, Peer: {Peer}",
-                context.Method, context.Peer);
+            _logger.LogDebug(
+                "[gRPC Server] Starting Unary call. Method: {Method}, Peer: {Peer}, Request: {Request}",
+                context.Method, context.Peer, request);
             try
             {
                 var response = await continuation(request, context);
@@ -49,9 +49,9 @@ namespace LaptopSupport.Services
             ServerCallContext context,
             ServerStreamingServerMethod<TRequest, TResponse> continuation)
         {
-            _logger.LogInformation(
-                "[gRPC Server] Received Server-Streaming call. Method: {Method}, Peer: {Peer}",
-                context.Method, context.Peer);
+            _logger.LogDebug(
+                "[gRPC Server] Starting Server-Streaming call. Method: {Method}, Peer: {Peer}, Request: {Request}",
+                context.Method, context.Peer, request);
             try
             {
                 await continuation(request, responseStream, context);

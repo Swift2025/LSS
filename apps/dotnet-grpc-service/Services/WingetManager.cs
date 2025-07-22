@@ -1,7 +1,9 @@
 // Services/WingetManager.cs
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,17 +12,17 @@ using Microsoft.Extensions.Logging;
 
 namespace LaptopSupport.Services
 {
-    // Manages operations using the Windows Package Manager (WinGet).
     public class WingetManager
     {
         private readonly ILogger<WingetManager> _logger;
+        // Regex to find percentage values in winget's progress bar output.
+        private readonly Regex _progressRegex = new Regex(@"(\d+)\s*%", RegexOptions.Compiled);
 
         public WingetManager(ILogger<WingetManager> logger)
         {
             _logger = logger;
         }
 
-        // Asynchronously installs a list of applications using WinGet.
         public async IAsyncEnumerable<ProgressUpdate> InstallAppsAsync(IEnumerable<string> appIds, [EnumeratorCancellation] CancellationToken cancellationToken)
         {
             int totalApps = new List<string>(appIds).Count;
@@ -34,32 +36,100 @@ namespace LaptopSupport.Services
                     yield break;
                 }
 
+                var arguments = $"install --id {appId} --accept-package-agreements --accept-source-agreements --disable-interactivity";
+                _logger.LogInformation("Executing WinGet command: winget {Arguments}", arguments);
+
                 yield return new ProgressUpdate
                 {
                     CurrentTask = $"Starting installation of {appId}...",
-                    OverallPercentage = (int)(((double)appsCompleted / totalApps) * 100),
+                    OverallPercentage = 0,
                     Status = ProgressUpdate.Types.Status.InProgress
                 };
 
                 var processStartInfo = new ProcessStartInfo
                 {
                     FileName = "winget",
-                    Arguments = $"install --id {appId} --accept-package-agreements --accept-source-agreements --silent",
+                    Arguments = arguments,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
                 };
 
                 using var process = new Process { StartInfo = processStartInfo };
-                process.Start();
+                
+                var stdErrBuilder = new StringBuilder();
+                var processCompletionSource = new TaskCompletionSource<bool>();
+                int lastReportedPercentage = -1;
+                bool downloadComplete = false;
 
-                // We can stream the output for more granular progress, but for now, we wait.
-                await process.WaitForExitAsync(cancellationToken);
+                process.EnableRaisingEvents = true;
+                process.Exited += (sender, args) => processCompletionSource.TrySetResult(true);
+                
+                process.ErrorDataReceived += (sender, args) => {
+                    if (args.Data != null) {
+                        stdErrBuilder.AppendLine(args.Data);
+                    }
+                };
+
+                process.Start();
+                
+                using var cancellationTokenRegistration = cancellationToken.Register(() =>
+                {
+                    _logger.LogWarning("Cancellation token invoked. Terminating winget process (ID: {ProcessId}).", process.Id);
+                    try { process.Kill(true); }
+                    catch (Exception ex) { _logger.LogError(ex, "Exception while trying to kill process."); }
+                });
+
+                process.BeginErrorReadLine();
+
+                while (!process.StandardOutput.EndOfStream)
+                {
+                    var line = await process.StandardOutput.ReadLineAsync(cancellationToken);
+                    if (line != null)
+                    {
+                        _logger.LogTrace("WinGet stdout: {Output}", line);
+
+                        var match = _progressRegex.Match(line);
+                        if (match.Success && int.TryParse(match.Groups[1].Value, out int percentage))
+                        {
+                            if (percentage != lastReportedPercentage)
+                            {
+                                int overallPercentage = (int)((appsCompleted + (percentage / 100.0)) / totalApps * 100);
+                                
+                                if (percentage == 100 && !downloadComplete)
+                                {
+                                    downloadComplete = true;
+                                    yield return new ProgressUpdate
+                                    {
+                                        CurrentTask = $"Finalizing installation for {appId}...",
+                                        OverallPercentage = (int)((appsCompleted + 0.99) / totalApps * 100),
+                                        Status = ProgressUpdate.Types.Status.InProgress
+                                    };
+                                } 
+                                else if (!downloadComplete)
+                                {
+                                     yield return new ProgressUpdate
+                                    {
+                                        CurrentTask = $"Downloading/Installing {appId}...",
+                                        OverallPercentage = overallPercentage,
+                                        Status = ProgressUpdate.Types.Status.InProgress
+                                    };
+                                }
+                                lastReportedPercentage = percentage;
+                            }
+                        }
+                    }
+                }
+
+                await processCompletionSource.Task;
 
                 if (process.ExitCode == 0)
                 {
                     appsCompleted++;
+                    _logger.LogInformation("Successfully installed {AppId}", appId);
                     yield return new ProgressUpdate
                     {
                         CurrentTask = $"✅ Successfully installed {appId}.",
@@ -69,15 +139,26 @@ namespace LaptopSupport.Services
                 }
                 else
                 {
-                    var errorOutput = await process.StandardError.ReadToEndAsync();
-                    _logger.LogError("Failed to install {AppId}. Exit Code: {ExitCode}. Error: {Error}", appId, process.ExitCode, errorOutput);
-                    yield return new ProgressUpdate
+                    var errorOutput = stdErrBuilder.ToString();
+                    if (cancellationToken.IsCancellationRequested)
                     {
-                        CurrentTask = $"❌ Failed to install {appId}. Error: {errorOutput}",
-                        OverallPercentage = (int)(((double)appsCompleted / totalApps) * 100),
-                        Status = ProgressUpdate.Types.Status.Failed
-                    };
-                    // Stop on first failure
+                         yield return new ProgressUpdate
+                        {
+                            CurrentTask = $"Installation of {appId} was cancelled.",
+                            OverallPercentage = (int)(((double)appsCompleted / totalApps) * 100),
+                            Status = ProgressUpdate.Types.Status.Failed
+                        };
+                    }
+                    else
+                    {
+                        _logger.LogError("Failed to install {AppId}. Exit Code: {ExitCode}. Error: {Error}", appId, process.ExitCode, errorOutput);
+                        yield return new ProgressUpdate
+                        {
+                            CurrentTask = $"❌ Failed to install {appId}. Error: {errorOutput}",
+                            OverallPercentage = (int)(((double)appsCompleted / totalApps) * 100),
+                            Status = ProgressUpdate.Types.Status.Failed
+                        };
+                    }
                     yield break;
                 }
             }

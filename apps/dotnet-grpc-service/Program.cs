@@ -17,8 +17,20 @@ builder.Logging.SetMinimumLevel(LogLevel.Debug);
 // --- Configure Kestrel to listen on ALL network interfaces ---
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.ListenAnyIP(5215, o => o.Protocols = HttpProtocols.Http2);
+    options.ListenAnyIP(5220, o => o.Protocols = HttpProtocols.Http1AndHttp2);
 });
+
+
+// Define a CORS policy
+builder.Services.AddCors(o => o.AddPolicy("strict-origin-when-cross-origin", builder =>
+{
+    builder.AllowAnyOrigin()
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .WithExposedHeaders("Grpc-Status", "Grpc-Message",
+                "Grpc-Encoding", "Grpc-Accept-Encoding",
+                "Grpc-Status-Details-Bin");
+}));
 
 
 // --- Register Services and Interceptors ---
@@ -26,6 +38,7 @@ builder.Services.AddSingleton<ServerLoggingInterceptor>();
 builder.Services.AddGrpc(options =>
 {
     options.Interceptors.Add<ServerLoggingInterceptor>();
+    options.EnableDetailedErrors = true;
 });
 builder.Services.AddSingleton<WingetManager>();
 builder.Services.AddSingleton<SystemInfoService>();
@@ -41,8 +54,12 @@ if (app.Environment.IsDevelopment())
 
 app.UseRouting();
 
-app.MapGrpcService<SupportServiceImpl>();
-app.MapGrpcService<AdminServiceImpl>();
+app.UseCors("strict-origin-when-cross-origin");
+app.UseGrpcWeb(new GrpcWebOptions { DefaultEnabled = true });
+
+
+app.MapGrpcService<SupportServiceImpl>().EnableGrpcWeb().RequireCors("strict-origin-when-cross-origin");
+app.MapGrpcService<AdminServiceImpl>().EnableGrpcWeb().RequireCors("strict-origin-when-cross-origin");
 
 app.MapGet("/", () => "Communication with gRPC endpoints must be made through a gRPC client.");
 

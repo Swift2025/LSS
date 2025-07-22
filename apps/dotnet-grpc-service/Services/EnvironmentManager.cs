@@ -23,7 +23,7 @@ namespace LaptopSupport.Services
             _logger = logger;
             _wingetManager = wingetManager;
             // The path is relative to the C# project's execution directory
-            _environments = LoadEnvironmentsFromFile("../../../config/ai/environments.json");
+            _environments = LoadEnvironmentsFromFile("config/ai/environments.json");
         }
 
         private Dictionary<string, JsonElement> LoadEnvironmentsFromFile(string filePath)

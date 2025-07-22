@@ -4,6 +4,7 @@ using LaptopSupport;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using System;
+using Microsoft.AspNetCore.Cors;
 
 namespace LaptopSupport.Services
 {

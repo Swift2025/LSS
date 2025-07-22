@@ -2,6 +2,9 @@
 
 This monorepo contains the complete source code for the AI-Powered Laptop Support System, a multi-technology project designed to provide automated technical assistance.
 
+<img width="1920" height="1080" alt="Screenshot (49)" src="https://github.com/user-attachments/assets/ef9e1768-a3cc-438c-8311-2129069fa539" />
+
+
 ## Overview
 
 The system is composed of three main applications:
@@ -24,9 +27,9 @@ The system is composed of three main applications:
 
 1. Navigate to **`apps`**, then one of the sub-projects listed in the directory
 2. **Run projects**
-   - .NET: dotnet run
-   - Angular: ng serve
-   - Django: python3 manage.py runserver
+   - .NET: `dotnet run`
+   - Angular: `npm install && ng serve`
+   - Django: `python3 manage.py runserver`
 
 ## Project Structure
 
